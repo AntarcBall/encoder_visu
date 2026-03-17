@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.omx/logs/
+.omx/state/
+.omx/metrics.json
+/tmp/
+*.png
