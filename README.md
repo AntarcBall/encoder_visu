@@ -7,7 +7,10 @@
 - 쉬운 한국어 설명
 - 비유 / 오해 교정 / 원문 포인트
 - 인터랙티브 랩
+- β-VAE / Jacobian spectrum 같은 심화 Technical Lab
 - Mission Board / Latent Rescue Challenge
+- 검색 / 빠른 점프 / 학습 진행 자동 저장
+- 퀵 파인드(⌘/Ctrl + K) / 진행 초기화 / 개요 카드
 - Source Trace / Scope Note / Reference Basis
 
 ## 실행
@@ -51,5 +54,6 @@ npm audit --omit=dev
 ## 주요 파일
 - `src/content.js`: 섹션 콘텐츠 / source trace / reference basis
 - `src/main.js`: 상태 / 내비게이션 / 인터랙션 렌더링
+- `src/state.js`: 초기 상태 생성 / localStorage 영속화
 - `src/style.css`: 레이아웃 / 반응형 / 인터랙션 스타일
 - `public/_headers`: 정적 호스팅용 보안 헤더 예시

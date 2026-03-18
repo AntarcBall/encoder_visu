@@ -378,6 +378,24 @@ export const chapters = [
     interaction: 'klLab'
   },
   {
+    id: 'beta-elbo-lab',
+    section: 'Technical Lab',
+    title: 'β-VAE ELBO Trade-off Lab: reconstruction과 KL의 줄다리기 보기',
+    badge: 'Tech Lab',
+    focus: 'ELBO 분해와 β 조절',
+    summary:
+      '이 페이지는 ELBO = reconstruction term + β·KL 항을 직접 조절하며, posterior 평균과 분산을 바꿀 때 objective가 어떻게 움직이는지 보여 줍니다.',
+    easy:
+      '설명을 자세히 적고 싶은 마음과, 너무 복잡한 코드를 쓰지 말라는 규칙이 동시에 작동하는 상황이라고 생각하면 됩니다.',
+    paper:
+      '확률적 오토인코더 계열에서 reconstruction과 latent regularization의 균형이 왜 중요한지, 그리고 β 값이 latent 압축 성향에 어떤 영향을 주는지 더 정량적으로 체감하게 해 줍니다.',
+    analogy: '보고서를 길게 쓰면 정보는 많아지지만, 요약 규칙이 강할수록 핵심만 남겨야 하는 상황',
+    bullets: ['ELBO decomposition', 'β scaling', 'μ·σ와 objective 균형'],
+    misconception: 'KL을 줄이면 무조건 좋은 latent가 된다.',
+    correction: 'KL이 너무 강하면 정보가 사라지고, reconstruction만 강하면 latent가 제멋대로 커질 수 있습니다.',
+    interaction: 'betaVaeLab'
+  },
+  {
     id: 'correlated-posterior-lab',
     section: 'Technical Lab',
     title: 'Correlated Posterior Lab: 비스듬한 타원 posterior 보기',
@@ -736,6 +754,24 @@ export const chapters = [
     misconception: 'contractive penalty는 그냥 출력을 작게 만드는 규칙이다.',
     correction: '핵심은 출력 자체보다 입력 변화에 대한 민감도, 즉 도함수 크기를 줄이는 데 있습니다.',
     interaction: 'jacobianLab'
+  },
+  {
+    id: 'jacobian-spectrum-lab',
+    section: 'Technical Lab',
+    title: 'Jacobian Spectrum Lab: singular value가 local geometry를 어떻게 바꾸는가',
+    badge: 'Tech Lab',
+    focus: 'singular values와 local volume',
+    summary:
+      '이 페이지는 encoder의 local Jacobian을 singular values와 rotation으로 분해해, unit circle이 ellipse로 변할 때 contractive penalty·condition number·local volume이 어떻게 달라지는지 보여 줍니다.',
+    easy:
+      '작은 원형 스티커를 눌러 타원으로 만드는 프레스 기계를 떠올리면 쉽습니다. 어느 방향을 얼마나 늘리거나 줄이는지가 핵심입니다.',
+    paper:
+      'contractive autoencoder의 Jacobian penalty를 “민감도 합” 수준이 아니라 singular spectrum 관점으로 다시 보게 해 주며, 어떤 방향은 눌리고 어떤 방향은 살아남는지 더 깊게 해석하게 합니다.',
+    analogy: '말랑한 반죽을 프레스로 눌러 어떤 방향은 찌그러뜨리고 어떤 방향은 덜 줄이는 장면',
+    bullets: ['singular spectrum', 'condition number', 'local area scaling'],
+    misconception: 'contractive penalty는 모든 방향을 똑같이 줄이는 규칙이다.',
+    correction: '실제로는 방향별 민감도가 다를 수 있고, singular values가 그 차이를 가장 압축적으로 보여 줍니다.',
+    interaction: 'jacobianSpectrumLab'
   },
   {
     id: 'psd',

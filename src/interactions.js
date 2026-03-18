@@ -95,6 +95,11 @@ export const interactionRegistry = {
     hint: 'posterior 타원이 prior 원에서 얼마나 벗어나는지와 KL cost가 어떻게 연결되는지 보세요.',
     render: renderKlLab,
   },
+  betaVaeLab: {
+    title: 'β-VAE ELBO Trade-off Lab',
+    hint: 'β, μ, σ를 함께 바꾸며 reconstruction과 KL의 균형점이 objective를 어떻게 바꾸는지 보세요.',
+    render: renderBetaVaeLab,
+  },
   anisotropicPriorLab: {
     title: 'Anisotropic Gaussian Prior Lab',
     hint: '분산과 상관계수를 바꿨을 때 prior 등고선이 원에서 타원으로 어떻게 바뀌는지 보세요.',
@@ -189,6 +194,11 @@ export const interactionRegistry = {
     title: 'Jacobian Sensitivity Lab',
     hint: 'tanh encoder의 Jacobian norm을 계산해 contractive penalty가 실제로 줄이는 것이 무엇인지 보세요.',
     render: renderJacobianLab,
+  },
+  jacobianSpectrumLab: {
+    title: 'Jacobian Spectrum Lab',
+    hint: 'singular value와 rotation을 바꾸며 local geometry, condition number, volume scaling이 어떻게 달라지는지 보세요.',
+    render: renderJacobianSpectrumLab,
   },
   psd: {
     title: 'Predictive Sparse Race',
@@ -2141,6 +2151,66 @@ function renderKlLab(root) {
   drawKl(canvas.getContext('2d'), canvas, muX, muY, sigmaX, sigmaY)
 }
 
+function renderBetaVaeLab(root) {
+  const beta = state.betaVaeBeta ?? 1.2
+  const mu = state.betaVaeMu ?? 1.1
+  const sigma = Math.max(0.2, state.betaVaeSigma ?? 0.7)
+  const { recon, kl, objective } = betaVaeTerms(mu, sigma, beta)
+
+  root.innerHTML = `
+    <label class="control">
+      <span>β weight: <strong>${beta.toFixed(2)}</strong></span>
+      <input type="range" min="0" max="400" value="${Math.round(beta * 100)}" id="beta-vae-beta" />
+    </label>
+    <label class="control">
+      <span>posterior mean μ: <strong>${mu.toFixed(2)}</strong></span>
+      <input type="range" min="-240" max="240" value="${Math.round(mu * 100)}" id="beta-vae-mu" />
+    </label>
+    <label class="control">
+      <span>posterior std σ: <strong>${sigma.toFixed(2)}</strong></span>
+      <input type="range" min="20" max="180" value="${Math.round(sigma * 100)}" id="beta-vae-sigma" />
+    </label>
+    <canvas id="beta-vae-canvas" width="620" height="320" class="scene-canvas"></canvas>
+    <div class="compare-bars">
+      <div>
+        <span>reconstruction term</span>
+        <div class="bar"><i style="width:${Math.min(100, recon * 32)}%"></i></div>
+        <strong>${recon.toFixed(3)}</strong>
+      </div>
+      <div>
+        <span>β · KL</span>
+        <div class="bar compact"><i style="width:${Math.min(100, beta * kl * 22)}%"></i></div>
+        <strong>${(beta * kl).toFixed(3)}</strong>
+      </div>
+      <div>
+        <span>ELBO objective</span>
+        <div class="bar long"><i style="width:${Math.min(100, objective * 18)}%"></i></div>
+        <strong>${objective.toFixed(3)}</strong>
+      </div>
+    </div>
+    <p class="micro-note">heatmap은 μ-σ 조합별 objective를 보여 줍니다. β가 커질수록 KL을 덜 내는 영역이 더 유리해지고, β가 작을수록 reconstruction이 좋은 영역이 더 선호됩니다.</p>
+  `
+
+  root.querySelector('#beta-vae-beta').addEventListener('input', (event) => {
+    state.betaVaeBeta = Number(event.target.value) / 100
+    markInteractionExplored('betaVaeLab')
+    rerender('betaVaeLab')
+  })
+  root.querySelector('#beta-vae-mu').addEventListener('input', (event) => {
+    state.betaVaeMu = Number(event.target.value) / 100
+    markInteractionExplored('betaVaeLab')
+    rerender('betaVaeLab')
+  })
+  root.querySelector('#beta-vae-sigma').addEventListener('input', (event) => {
+    state.betaVaeSigma = Number(event.target.value) / 100
+    markInteractionExplored('betaVaeLab')
+    rerender('betaVaeLab')
+  })
+
+  const canvas = root.querySelector('#beta-vae-canvas')
+  drawBetaVae(canvas.getContext('2d'), canvas, beta, mu, sigma)
+}
+
 function renderDecoderManifoldLab(root) {
   const h = state.decoderH ?? 0.3
   const tangent = decoderTangent(h)
@@ -2478,6 +2548,68 @@ function drawLatentGeometry(ctx, canvas, t) {
     ctx.fillStyle = color
     ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.fill()
   })
+}
+
+function renderJacobianSpectrumLab(root) {
+  const s1 = Math.max(0.15, state.jacobianS1 ?? 1.1)
+  const s2 = Math.max(0.1, state.jacobianS2 ?? 0.45)
+  const theta = state.jacobianTheta ?? 24
+  const penalty = s1 ** 2 + s2 ** 2
+  const condition = s1 / s2
+  const volume = s1 * s2
+
+  root.innerHTML = `
+    <label class="control">
+      <span>σ₁ (dominant stretch): <strong>${s1.toFixed(2)}</strong></span>
+      <input type="range" min="15" max="220" value="${Math.round(s1 * 100)}" id="jac-spectrum-s1" />
+    </label>
+    <label class="control">
+      <span>σ₂ (minor stretch): <strong>${s2.toFixed(2)}</strong></span>
+      <input type="range" min="10" max="180" value="${Math.round(s2 * 100)}" id="jac-spectrum-s2" />
+    </label>
+    <label class="control">
+      <span>rotation θ: <strong>${theta}°</strong></span>
+      <input type="range" min="-90" max="90" value="${theta}" id="jac-spectrum-theta" />
+    </label>
+    <canvas id="jac-spectrum-canvas" width="620" height="320" class="scene-canvas"></canvas>
+    <div class="compare-bars">
+      <div>
+        <span>contractive penalty Σσ²</span>
+        <div class="bar"><i style="width:${Math.min(100, penalty * 28)}%"></i></div>
+        <strong>${penalty.toFixed(3)}</strong>
+      </div>
+      <div>
+        <span>condition number σ₁ / σ₂</span>
+        <div class="bar compact"><i style="width:${Math.min(100, condition * 18)}%"></i></div>
+        <strong>${condition.toFixed(2)}</strong>
+      </div>
+      <div>
+        <span>local area scale |det J|</span>
+        <div class="bar long"><i style="width:${Math.min(100, volume * 65)}%"></i></div>
+        <strong>${volume.toFixed(3)}</strong>
+      </div>
+    </div>
+    <p class="micro-note">왼쪽은 입력의 unit circle, 오른쪽은 Jacobian이 만든 local ellipse입니다. contractive penalty는 전체 민감도를, condition number는 방향별 불균형을, determinant는 local volume 보존 정도를 보여 줍니다.</p>
+  `
+
+  root.querySelector('#jac-spectrum-s1').addEventListener('input', (event) => {
+    state.jacobianS1 = Number(event.target.value) / 100
+    markInteractionExplored('jacobianSpectrumLab')
+    rerender('jacobianSpectrumLab')
+  })
+  root.querySelector('#jac-spectrum-s2').addEventListener('input', (event) => {
+    state.jacobianS2 = Number(event.target.value) / 100
+    markInteractionExplored('jacobianSpectrumLab')
+    rerender('jacobianSpectrumLab')
+  })
+  root.querySelector('#jac-spectrum-theta').addEventListener('input', (event) => {
+    state.jacobianTheta = Number(event.target.value)
+    markInteractionExplored('jacobianSpectrumLab')
+    rerender('jacobianSpectrumLab')
+  })
+
+  const canvas = root.querySelector('#jac-spectrum-canvas')
+  drawJacobianSpectrum(canvas.getContext('2d'), canvas, s1, s2, theta)
 }
 
 function renderVectorFieldLab(root) {
@@ -3362,4 +3494,152 @@ function drawClusterSeparation(ctx, canvas, margin) {
       ctx.fill()
     }
   })
+}
+
+function betaVaeTerms(mu, sigma, beta) {
+  const recon = 0.35 + 0.18 * (mu - 1.45) ** 2 + 0.62 * (sigma - 0.48) ** 2
+  const kl = 0.5 * (mu ** 2 + sigma ** 2 - Math.log(sigma ** 2) - 1)
+  return {
+    recon,
+    kl,
+    objective: recon + beta * kl,
+  }
+}
+
+function drawBetaVae(ctx, canvas, beta, currentMu, currentSigma) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height)
+  ctx.fillStyle = '#07111d'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+  const pad = { left: 64, right: 24, top: 26, bottom: 42 }
+  const plotW = canvas.width - pad.left - pad.right
+  const plotH = canvas.height - pad.top - pad.bottom
+  const muMin = -2.4
+  const muMax = 2.4
+  const sigmaMin = 0.2
+  const sigmaMax = 1.8
+
+  let minObjective = Infinity
+  let maxObjective = -Infinity
+  const cache = []
+
+  for (let ix = 0; ix < 52; ix += 1) {
+    for (let iy = 0; iy < 40; iy += 1) {
+      const mu = muMin + (ix / 51) * (muMax - muMin)
+      const sigma = sigmaMin + (iy / 39) * (sigmaMax - sigmaMin)
+      const { objective } = betaVaeTerms(mu, sigma, beta)
+      cache.push({ ix, iy, objective })
+      minObjective = Math.min(minObjective, objective)
+      maxObjective = Math.max(maxObjective, objective)
+    }
+  }
+
+  cache.forEach(({ ix, iy, objective }) => {
+    const t = (objective - minObjective) / Math.max(1e-6, maxObjective - minObjective)
+    const x = pad.left + (ix / 52) * plotW
+    const y = pad.top + (iy / 40) * plotH
+    ctx.fillStyle = `rgba(${Math.round(255 - t * 85)}, ${Math.round(210 - t * 88)}, ${Math.round(120 + (1 - t) * 135)}, 0.88)`
+    ctx.fillRect(x, y, plotW / 52 + 1, plotH / 40 + 1)
+  })
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.22)'
+  ctx.lineWidth = 1
+  ctx.strokeRect(pad.left, pad.top, plotW, plotH)
+
+  ctx.fillStyle = '#a5b7d1'
+  ctx.font = '12px sans-serif'
+  ctx.fillText('μ', canvas.width / 2, canvas.height - 12)
+  ctx.save()
+  ctx.translate(18, canvas.height / 2)
+  ctx.rotate(-Math.PI / 2)
+  ctx.fillText('σ', 0, 0)
+  ctx.restore()
+
+  const px = pad.left + ((currentMu - muMin) / (muMax - muMin)) * plotW
+  const py = pad.top + ((currentSigma - sigmaMin) / (sigmaMax - sigmaMin)) * plotH
+  ctx.strokeStyle = '#ffffff'
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  ctx.arc(px, py, 8, 0, Math.PI * 2)
+  ctx.stroke()
+  ctx.fillStyle = '#ff7ab8'
+  ctx.beginPath()
+  ctx.arc(px, py, 4, 0, Math.PI * 2)
+  ctx.fill()
+
+  const optimum = betaVaeTerms(currentMu, currentSigma, beta)
+  ctx.fillStyle = '#ecf5ff'
+  ctx.fillText(`current objective ${optimum.objective.toFixed(3)}`, pad.left, 18)
+}
+
+function drawJacobianSpectrum(ctx, canvas, s1, s2, thetaDeg) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height)
+  ctx.fillStyle = '#07111d'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+  const leftCx = 175
+  const rightCx = 455
+  const cy = canvas.height / 2
+  const base = 58
+  const theta = (thetaDeg * Math.PI) / 180
+
+  drawSpectrumPanelFrame(ctx, 40, 36, 270, canvas.height - 72, 'Input local ball')
+  drawSpectrumPanelFrame(ctx, 320, 36, 260, canvas.height - 72, 'Mapped ellipse')
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.28)'
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(leftCx - 86, cy)
+  ctx.lineTo(leftCx + 86, cy)
+  ctx.moveTo(leftCx, cy - 86)
+  ctx.lineTo(leftCx, cy + 86)
+  ctx.stroke()
+
+  ctx.strokeStyle = '#82e9ff'
+  ctx.lineWidth = 2.5
+  ctx.beginPath()
+  ctx.arc(leftCx, cy, base, 0, Math.PI * 2)
+  ctx.stroke()
+
+  ctx.strokeStyle = '#ff7ab8'
+  ctx.lineWidth = 3
+  ctx.beginPath()
+  ctx.ellipse(rightCx, cy, base * s1, base * s2, -theta, 0, Math.PI * 2)
+  ctx.stroke()
+
+  const v1x = Math.cos(theta) * base * s1
+  const v1y = -Math.sin(theta) * base * s1
+  const v2x = Math.sin(theta) * base * s2
+  const v2y = Math.cos(theta) * base * s2
+
+  ctx.strokeStyle = '#a1ff7a'
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  ctx.moveTo(rightCx, cy)
+  ctx.lineTo(rightCx + v1x, cy + v1y)
+  ctx.moveTo(rightCx, cy)
+  ctx.lineTo(rightCx - v1x, cy - v1y)
+  ctx.stroke()
+
+  ctx.strokeStyle = '#ffc35c'
+  ctx.beginPath()
+  ctx.moveTo(rightCx, cy)
+  ctx.lineTo(rightCx + v2x, cy + v2y)
+  ctx.moveTo(rightCx, cy)
+  ctx.lineTo(rightCx - v2x, cy - v2y)
+  ctx.stroke()
+
+  ctx.fillStyle = '#ecf5ff'
+  ctx.font = '12px sans-serif'
+  ctx.fillText(`σ₁=${s1.toFixed(2)}`, 360, 58)
+  ctx.fillText(`σ₂=${s2.toFixed(2)}`, 360, 76)
+  ctx.fillText(`θ=${thetaDeg}°`, 360, 94)
+}
+
+function drawSpectrumPanelFrame(ctx, x, y, w, h, label) {
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)'
+  ctx.strokeRect(x, y, w, h)
+  ctx.fillStyle = '#a5b7d1'
+  ctx.font = '12px sans-serif'
+  ctx.fillText(label, x + 10, y + 18)
 }

@@ -1,104 +1,141 @@
 import './style.css'
 import { chapters, quickFacts, referenceBasis, siteNotes, sourceTrace } from './content.js'
 import { interactionRegistry, quizItems, renderRegisteredInteraction } from './interactions.js'
+import { createInitialState, loadPersistedState, persistState } from './state.js'
 
 const app = document.querySelector('#app')
+const state = createInitialState(chapters, loadPersistedState())
 
-const state = {
-  current: 0,
-  bottleneckSize: 4,
-  capacity: 7,
-  datasetVariety: 4,
-  sparsity: 72,
-  noise: 32,
-  stochasticSeed: 0,
-  familyMode: 'sparse',
-  arenaMode: 'linear',
-  manifoldT: 38,
-  contractiveWobble: 28,
-  psdSteps: 0,
-  applicationFilter: 'all',
-  challengeDifficulty: 'easy',
-  challengeTimeLeft: 60,
-  challengeRunning: false,
-  challengeFilter: 56,
-  challengeLatent: 4,
-  challengeSnap: true,
-  challengeLastScore: null,
-  challengeBadge: 'Warm-up',
-  challengeMessage: '난이도를 고르고, 노이즈를 줄이면서도 과하게 외우지 않는 균형점을 찾아보세요.',
-  challengeBest: { easy: 0, medium: 0, hard: 0 },
-  projectionAngle: 32,
-  scoreSigma: 0.9,
-  scoreAccuratePointX: 1.9,
-  scoreAccuratePointY: -1.4,
-  jacobianScale: 1.2,
-  jacobianX: 0.5,
-  jacobianY: -0.4,
-  quizAnswers: {},
-  visitedChapters: new Set(),
-  exploredInteractions: new Set(),
-}
+let persistTimer = null
+let paletteQuery = ''
 
 function init() {
-  const hash = window.location.hash.slice(1)
-  const idx = chapters.findIndex((chapter) => chapter.id === hash)
-  state.current = idx >= 0 ? idx : 0
+  syncFromHash({ applySavedIndex: true })
   state.visitedChapters.add(chapters[state.current].id)
   renderApp()
-  window.addEventListener('hashchange', syncFromHash)
+  window.addEventListener('hashchange', handleHashChange)
   window.addEventListener('keydown', handleKeys)
+  schedulePersist()
 }
 
-function syncFromHash() {
+function schedulePersist() {
+  window.clearTimeout(persistTimer)
+  persistTimer = window.setTimeout(() => {
+    state.lastSavedAt = new Date().toISOString()
+    persistState(state)
+    updateSaveStatus()
+  }, 120)
+}
+
+function syncFromHash({ applySavedIndex = false } = {}) {
   const hash = window.location.hash.slice(1)
   const idx = chapters.findIndex((chapter) => chapter.id === hash)
-  if (idx >= 0 && idx !== state.current) {
+
+  if (idx >= 0) {
     state.current = idx
-    state.visitedChapters.add(chapters[idx].id)
+    return true
+  }
+
+  if (applySavedIndex) {
+    window.location.hash = chapters[state.current].id
+    return true
+  }
+
+  return false
+}
+
+function handleHashChange() {
+  const previous = state.current
+  const didSync = syncFromHash()
+  if (didSync && previous !== state.current) {
+    state.visitedChapters.add(chapters[state.current].id)
     renderChapter()
     updateSidebar()
-    updateMissionBoard()
+    updateLearningDeck()
+    schedulePersist()
   }
 }
 
-function handleKeys(event) {
-  if (event.key === 'ArrowRight') navigate(Math.min(chapters.length - 1, state.current + 1))
-  if (event.key === 'ArrowLeft') navigate(Math.max(0, state.current - 1))
+function shouldIgnoreKeydown(target) {
+  if (!(target instanceof HTMLElement)) return false
+  return Boolean(target.closest('input, textarea, select, button, [contenteditable="true"]'))
 }
 
-function navigate(index) {
+function handleKeys(event) {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault()
+    openCommandPalette()
+    return
+  }
+
+  if (!shouldIgnoreKeydown(event.target) && event.key === '/') {
+    event.preventDefault()
+    openCommandPalette()
+    return
+  }
+
+  if (shouldIgnoreKeydown(event.target)) return
+
+  if (event.key === 'ArrowRight') {
+    event.preventDefault()
+    navigate(Math.min(chapters.length - 1, state.current + 1))
+  }
+
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault()
+    navigate(Math.max(0, state.current - 1))
+  }
+}
+
+function navigate(index, { updateHash = true } = {}) {
   state.current = index
   state.visitedChapters.add(chapters[index].id)
-  window.location.hash = chapters[index].id
+
+  if (updateHash && window.location.hash.slice(1) !== chapters[index].id) {
+    window.location.hash = chapters[index].id
+  }
+
   renderChapter()
   updateSidebar()
-  updateMissionBoard()
+  updateLearningDeck()
+  schedulePersist()
 }
 
 function renderApp() {
   app.innerHTML = `
+    <a class="skip-link" href="#chapter-view">본문으로 바로가기</a>
     <div class="shell">
-      <aside class="sidebar">
-        <div class="brand">
-          <p class="eyebrow">Paper-2-Web • Vite Story</p>
-          <h1>Autoencoder Playground</h1>
-          <p class="brand-copy">autoencoder.pdf를 쉽고 재밌게 이해하도록 바꾼 인터랙티브 설명 페이지</p>
+      <aside class="sidebar" aria-label="학습 사이드바">
+        <div class="sidebar-top">
+          <div class="brand brand-card">
+            <p class="eyebrow">Paper-2-Web • Vite Story</p>
+            <h1>Autoencoder Playground</h1>
+            <p class="brand-copy">autoencoder.pdf를 쉽고 재밌게 이해하도록 바꾼 인터랙티브 설명 페이지</p>
+          </div>
+          <section class="sidebar-panel search-panel" aria-label="챕터 탐색">
+            <label class="search-label" for="chapter-search">챕터 검색</label>
+            <div class="search-input-wrap">
+              <span aria-hidden="true">⌕</span>
+              <input id="chapter-search" type="search" placeholder="예: sparse, manifold, quiz" value="${escapeHtml(state.chapterQuery)}" />
+            </div>
+            <p class="micro-note">제목, 포커스, 배지 기준으로 빠르게 찾을 수 있어요.</p>
+          </section>
+          <div class="facts facts-grid">
+            ${quickFacts
+              .map(
+                (fact) => `
+                  <div class="fact-card gradient-border">
+                    <span>${fact.label}</span>
+                    <strong>${fact.label === '페이지 수' ? `${chapters.length}개 학습 페이지 + 실험 패널` : fact.value}</strong>
+                  </div>
+                `
+              )
+              .join('')}
+          </div>
+          <section class="mission-card" id="mission-board"></section>
+          <section class="learning-deck" id="learning-deck"></section>
         </div>
-        <div class="facts">
-          ${quickFacts
-            .map(
-              (fact) => `
-                <div class="fact-card">
-                  <span>${fact.label}</span>
-                  <strong>${fact.label === '페이지 수' ? `${chapters.length}개 학습 페이지 + 실험 패널` : fact.value}</strong>
-                </div>
-              `
-            )
-            .join('')}
-        </div>
-        <section class="mission-card" id="mission-board"></section>
-        <nav id="chapter-nav" class="chapter-nav"></nav>
+        <nav id="chapter-nav" class="chapter-nav" aria-label="챕터 목록"></nav>
       </aside>
       <main class="main-panel">
         <header class="hero-card">
@@ -117,6 +154,38 @@ function renderApp() {
             <span>Keyboard Nav ← →</span>
           </div>
         </header>
+        <section class="overview-grid" aria-label="콘텐츠 개요">
+          ${getOverviewCards()}
+        </section>
+        <section class="chapter-toolbar glass" aria-label="학습 도구 모음">
+          <div class="toolbar-copy">
+            <p class="eyebrow">Learning Compass</p>
+            <h3>지금 보고 있는 챕터를 기준으로 빠르게 이동하세요</h3>
+            <p>검색, 점프 셀렉트, 퀵 파인드, 진행률을 묶어서 긴 콘텐츠에서도 길을 잃지 않도록 정리했습니다.</p>
+          </div>
+          <div class="toolbar-actions">
+            <label class="select-card" for="chapter-jump">
+              <span>빠른 점프</span>
+              <select id="chapter-jump">
+                ${chapters
+                  .map(
+                    (chapter, index) =>
+                      `<option value="${index}" ${index === state.current ? 'selected' : ''}>${String(index + 1).padStart(2, '0')} · ${chapter.title}</option>`
+                  )
+                  .join('')}
+              </select>
+            </label>
+            <div class="toolbar-stat">
+              <span>누적 진행률</span>
+              <strong>${Math.round(((state.current + 1) / chapters.length) * 100)}%</strong>
+              <div class="progress-bar compact"><span style="width:${((state.current + 1) / chapters.length) * 100}%"></span></div>
+            </div>
+            <div class="toolbar-button-group">
+              <button class="ghost-button toolbar-button" id="continue-button">이어보기</button>
+              <button class="ghost-button toolbar-button" id="open-palette">퀵 파인드</button>
+            </div>
+          </div>
+        </section>
         <section id="chapter-view"></section>
         <section class="evidence-grid">
           <article class="evidence-card">
@@ -164,11 +233,67 @@ function renderApp() {
         </section>
       </main>
     </div>
+    <dialog id="command-palette" class="command-palette">
+      <form method="dialog" class="command-palette-shell">
+        <div class="command-header">
+          <div>
+            <p class="eyebrow">Quick Find</p>
+            <h3>챕터를 바로 찾고 이동하기</h3>
+          </div>
+          <button class="ghost-button" value="cancel">닫기</button>
+        </div>
+        <label class="search-label" for="palette-search">챕터 찾기</label>
+        <div class="search-input-wrap">
+          <span aria-hidden="true">⌕</span>
+          <input id="palette-search" type="search" placeholder="제목, 배지, 포커스로 검색" value="${escapeHtml(paletteQuery)}" />
+        </div>
+        <div class="palette-tip-row">
+          <span>단축키: ⌘/Ctrl + K</span>
+          <span>/ 키로도 열 수 있어요</span>
+        </div>
+        <div class="palette-results" id="palette-results"></div>
+      </form>
+    </dialog>
   `
 
+  bindShellEvents()
   updateSidebar()
   updateMissionBoard()
+  updateLearningDeck()
   renderChapter()
+}
+
+function bindShellEvents() {
+  document.querySelector('#chapter-search')?.addEventListener('input', (event) => {
+    state.chapterQuery = event.target.value
+    updateSidebar()
+    schedulePersist()
+  })
+
+  document.querySelector('#chapter-jump')?.addEventListener('change', (event) => {
+    navigate(Number(event.target.value))
+  })
+
+  document.querySelector('#continue-button')?.addEventListener('click', () => {
+    const lastVisitedIndex = getLastVisitedIndex()
+    navigate(lastVisitedIndex)
+  })
+
+  document.querySelector('#open-palette')?.addEventListener('click', openCommandPalette)
+  document.querySelector('#reset-progress')?.addEventListener('click', resetProgress)
+  bindCommandPalette()
+}
+
+function getVisibleChapters() {
+  const query = state.chapterQuery.trim().toLowerCase()
+  if (!query) return chapters.map((chapter, index) => ({ chapter, index }))
+
+  return chapters
+    .map((chapter, index) => ({ chapter, index }))
+    .filter(({ chapter }) => {
+      const haystack = [chapter.title, chapter.focus, chapter.badge, chapter.section].join(' ').toLowerCase()
+      return haystack.includes(query)
+    })
 }
 
 function updateMissionBoard() {
@@ -187,7 +312,10 @@ function updateMissionBoard() {
 
   board.innerHTML = `
     <p class="eyebrow">Mission Board</p>
-    <h3>게임처럼 배우기</h3>
+    <div class="panel-title-row">
+      <h3>게임처럼 배우기</h3>
+      <span class="panel-badge">자동 저장</span>
+    </div>
     <div class="mission-stats">
       <div><span>방문한 챕터</span><strong>${state.visitedChapters.size}/${chapters.length}</strong></div>
       <div><span>체험한 랩</span><strong>${state.exploredInteractions.size}/${totalLabs}</strong></div>
@@ -207,26 +335,75 @@ function updateMissionBoard() {
   `
 }
 
+function updateLearningDeck() {
+  const deck = document.querySelector('#learning-deck')
+  if (!deck) return
+
+  const chapter = chapters[state.current]
+  const completion = Math.round((state.visitedChapters.size / chapters.length) * 100)
+  deck.innerHTML = `
+    <p class="eyebrow">Learning Snapshot</p>
+    <div class="panel-title-row">
+      <h3>${chapter.title}</h3>
+      <button class="ghost-button compact-button" id="reset-progress">진행 초기화</button>
+    </div>
+    <p class="learning-copy">${chapter.summary}</p>
+    <div class="learning-stats">
+      <div>
+        <span>현재 포커스</span>
+        <strong>${chapter.focus}</strong>
+      </div>
+      <div>
+        <span>학습 완주율</span>
+        <strong>${completion}%</strong>
+      </div>
+    </div>
+    <div class="progress-bar compact"><span style="width:${completion}%"></span></div>
+    <p class="micro-note" id="save-status">새로고침해도 현재 챕터와 학습 흔적이 유지됩니다.</p>
+  `
+
+  document.querySelector('#reset-progress')?.addEventListener('click', resetProgress)
+  updateSaveStatus()
+}
+
 function markInteractionExplored(type) {
   state.exploredInteractions.add(type)
   updateMissionBoard()
+  schedulePersist()
 }
 
 function updateSidebar() {
   const nav = document.querySelector('#chapter-nav')
-  nav.innerHTML = chapters
-    .map(
-      (chapter, index) => `
-        <button class="nav-item ${index === state.current ? 'active' : ''}" data-index="${index}">
-          <span class="nav-index">${String(index + 1).padStart(2, '0')}</span>
-          <span>
-            <strong>${chapter.title}</strong>
-            <small>${chapter.focus}</small>
-          </span>
-        </button>
-      `
-    )
-    .join('')
+  if (!nav) return
+
+  const visibleChapters = getVisibleChapters()
+  const visibleMarkup = visibleChapters.length
+    ? visibleChapters
+        .map(
+          ({ chapter, index }) => `
+            <button
+              class="nav-item ${index === state.current ? 'active' : ''} ${state.visitedChapters.has(chapter.id) ? 'visited' : ''}"
+              data-index="${index}"
+              ${index === state.current ? 'aria-current="page"' : ''}
+            >
+              <span class="nav-index">${String(index + 1).padStart(2, '0')}</span>
+              <span>
+                <strong>${chapter.title}</strong>
+                <small>${chapter.focus}</small>
+              </span>
+            </button>
+          `
+        )
+        .join('')
+    : '<p class="micro-note">검색 결과가 없습니다. 다른 키워드를 시도해 보세요.</p>'
+
+  nav.innerHTML = `
+    <div class="nav-summary">
+      <strong>${visibleChapters.length}</strong>
+      <span>${state.chapterQuery ? '검색 결과' : '전체 챕터'}</span>
+    </div>
+    ${visibleMarkup}
+  `
 
   nav.querySelectorAll('.nav-item').forEach((button) => {
     button.addEventListener('click', () => navigate(Number(button.dataset.index)))
@@ -238,17 +415,24 @@ function renderChapter() {
   const interaction = interactionRegistry[chapter.interaction]
   const container = document.querySelector('#chapter-view')
   const progress = ((state.current + 1) / chapters.length) * 100
+  const previousChapter = chapters[state.current - 1]
+  const nextChapter = chapters[state.current + 1]
 
   container.innerHTML = `
-    <article class="chapter-card">
+    <article class="chapter-card" aria-labelledby="chapter-title">
       <div class="chapter-topline">
         <span class="pill">${chapter.badge}</span>
-        <span class="section-label">Page ${state.current + 1} / ${chapters.length}</span>
+        <span class="section-label">${chapter.section}</span>
       </div>
       <div class="chapter-header">
         <div>
           <p class="eyebrow">${chapter.focus}</p>
-          <h3>${chapter.title}</h3>
+          <h3 id="chapter-title">${chapter.title}</h3>
+          <div class="chapter-meta-row">
+            <span class="meta-chip">${interaction?.title ?? 'Interactive View'}</span>
+            <span class="meta-chip">방문 ${state.visitedChapters.has(chapter.id) ? '완료' : '예정'}</span>
+            <span class="meta-chip">${state.current + 1}/${chapters.length}</span>
+          </div>
         </div>
         <div class="progress-wrap">
           <div class="progress-bar"><span style="width:${progress}%"></span></div>
@@ -299,18 +483,207 @@ function renderChapter() {
         </section>
       </div>
 
-      <div class="chapter-footer">
-        <button class="pager" ${state.current === 0 ? 'disabled' : ''} id="prev-button">← 이전</button>
-        <button class="pager" ${state.current === chapters.length - 1 ? 'disabled' : ''} id="next-button">다음 →</button>
+      <div class="chapter-footer chapter-footer-rich">
+        <div class="pager-group">
+          <button class="pager" ${state.current === 0 ? 'disabled' : ''} id="prev-button">← 이전</button>
+          <button class="pager" ${state.current === chapters.length - 1 ? 'disabled' : ''} id="next-button">다음 →</button>
+        </div>
+        <div class="chapter-neighbors" aria-label="이전 다음 챕터 요약">
+          <div class="neighbor-card ${previousChapter ? '' : 'disabled'}">
+            <span>이전 챕터</span>
+            <strong>${previousChapter?.title ?? '첫 챕터입니다'}</strong>
+          </div>
+          <div class="neighbor-card ${nextChapter ? '' : 'disabled'}">
+            <span>다음 챕터</span>
+            <strong>${nextChapter?.title ?? '마지막 챕터입니다'}</strong>
+          </div>
+        </div>
       </div>
     </article>
   `
 
+  document.querySelector('#chapter-jump').value = String(state.current)
   document.querySelector('#prev-button')?.addEventListener('click', () => navigate(Math.max(0, state.current - 1)))
   document.querySelector('#next-button')?.addEventListener('click', () => navigate(Math.min(chapters.length - 1, state.current + 1)))
   document.querySelector('#randomize-button')?.addEventListener('click', shuffleCurrentInteraction)
 
+  updateLearningDeck()
   renderInteraction(chapter.interaction)
+}
+
+function getLastVisitedIndex() {
+  const visitedIds = Array.from(state.visitedChapters)
+  if (!visitedIds.length) return state.current
+  const lastVisitedId = visitedIds[visitedIds.length - 1]
+  const index = chapters.findIndex((chapter) => chapter.id === lastVisitedId)
+  return index >= 0 ? index : state.current
+}
+
+function getOverviewCards() {
+  const bucketCounts = getChapterBuckets()
+  return bucketCounts
+    .map(
+      (bucket) => `
+        <article class="overview-card">
+          <span>${bucket.label}</span>
+          <strong>${bucket.count}개</strong>
+          <p>${bucket.description}</p>
+        </article>
+      `
+    )
+    .join('')
+}
+
+function getChapterBuckets() {
+  const rules = [
+    { label: '핵심 개념', test: (chapter) => chapter.badge !== 'Tech Lab' && chapter.badge !== 'Finale', description: '기본 개념과 직관을 설명하는 섹션' },
+    { label: '테크 랩', test: (chapter) => chapter.badge === 'Tech Lab', description: '슬라이더·캔버스로 직접 만지는 실험 섹션' },
+    { label: '응용/마무리', test: (chapter) => chapter.badge === 'Finale' || chapter.interaction === 'applications' || chapter.interaction === 'quiz', description: '활용, 도전 과제, 마지막 정리' },
+  ]
+
+  return rules.map((rule) => ({
+    label: rule.label,
+    count: chapters.filter(rule.test).length,
+    description: rule.description,
+  }))
+}
+
+function bindCommandPalette() {
+  const dialog = document.querySelector('#command-palette')
+  const input = document.querySelector('#palette-search')
+  if (!dialog || !input) return
+
+  renderPaletteResults()
+
+  input.addEventListener('input', (event) => {
+    paletteQuery = event.target.value
+    renderPaletteResults()
+  })
+
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      const first = getPaletteResults()[0]
+      if (first) {
+        navigate(first.index)
+        closeCommandPalette()
+      }
+    }
+  })
+
+  dialog.addEventListener('close', () => {
+    paletteQuery = ''
+    input.value = ''
+  })
+}
+
+function getPaletteResults() {
+  const query = paletteQuery.trim().toLowerCase()
+  if (!query) return chapters.map((chapter, index) => ({ chapter, index })).slice(0, 12)
+
+  return chapters
+    .map((chapter, index) => ({ chapter, index }))
+    .filter(({ chapter }) => {
+      const haystack = [chapter.title, chapter.focus, chapter.badge, chapter.section].join(' ').toLowerCase()
+      return haystack.includes(query)
+    })
+    .slice(0, 12)
+}
+
+function renderPaletteResults() {
+  const container = document.querySelector('#palette-results')
+  if (!container) return
+
+  const results = getPaletteResults()
+  container.innerHTML = results.length
+    ? results
+        .map(
+          ({ chapter, index }) => `
+            <button class="palette-item" type="button" data-index="${index}">
+              <span class="palette-item-index">${String(index + 1).padStart(2, '0')}</span>
+              <span>
+                <strong>${chapter.title}</strong>
+                <small>${chapter.focus} · ${chapter.badge}</small>
+              </span>
+            </button>
+          `
+        )
+        .join('')
+    : '<p class="micro-note">일치하는 챕터가 없습니다.</p>'
+
+  container.querySelectorAll('.palette-item').forEach((button) => {
+    button.addEventListener('click', () => {
+      navigate(Number(button.dataset.index))
+      closeCommandPalette()
+    })
+  })
+}
+
+function openCommandPalette() {
+  const dialog = document.querySelector('#command-palette')
+  const input = document.querySelector('#palette-search')
+  if (!dialog || !input) return
+
+  if (typeof dialog.showModal === 'function') {
+    if (!dialog.open) dialog.showModal()
+  } else {
+    dialog.setAttribute('open', 'open')
+  }
+
+  renderPaletteResults()
+  window.setTimeout(() => input.focus(), 0)
+}
+
+function closeCommandPalette() {
+  const dialog = document.querySelector('#command-palette')
+  if (!dialog) return
+
+  if (typeof dialog.close === 'function') {
+    if (dialog.open) dialog.close()
+  } else {
+    dialog.removeAttribute('open')
+  }
+}
+
+function resetProgress() {
+  if (!window.confirm('학습 진행도와 저장된 탐색 흔적을 초기화할까요?')) return
+
+  state.current = 0
+  state.chapterQuery = ''
+  state.quizAnswers = {}
+  state.visitedChapters = new Set([chapters[0].id])
+  state.exploredInteractions = new Set()
+  state.challengeBest = { easy: 0, medium: 0, hard: 0 }
+  state.challengeLastScore = null
+  state.challengeBadge = 'Warm-up'
+  state.challengeMessage = '난이도를 고르고, 노이즈를 줄이면서도 과하게 외우지 않는 균형점을 찾아보세요.'
+  paletteQuery = ''
+
+  const paletteSearch = document.querySelector('#palette-search')
+  if (paletteSearch) paletteSearch.value = ''
+
+  const sidebarSearch = document.querySelector('#chapter-search')
+  if (sidebarSearch) sidebarSearch.value = ''
+
+  updateMissionBoard()
+  navigate(0)
+  closeCommandPalette()
+}
+
+function updateSaveStatus() {
+  const node = document.querySelector('#save-status')
+  if (!node) return
+
+  if (!state.lastSavedAt) {
+    node.textContent = '새로고침해도 현재 챕터와 학습 흔적이 유지됩니다.'
+    return
+  }
+
+  const savedAt = new Date(state.lastSavedAt)
+  node.textContent = `새로고침해도 현재 챕터와 학습 흔적이 유지됩니다. 최근 저장: ${savedAt.toLocaleTimeString('ko-KR', {
+    hour: '2-digit',
+    minute: '2-digit',
+  })}`
 }
 
 function getWhyMatters(chapter) {
@@ -350,6 +723,7 @@ function shuffleCurrentInteraction() {
   state.jacobianScale = randomInt(60, 220) / 100
   state.stochasticSeed += 1
   renderInteraction(chapters[state.current].interaction)
+  schedulePersist()
 }
 
 function renderInteraction(type) {
@@ -365,6 +739,15 @@ function renderInteraction(type) {
 
 function randomInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min
+}
+
+function escapeHtml(value) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
 }
 
 init()
