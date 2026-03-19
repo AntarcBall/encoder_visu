@@ -72,7 +72,7 @@ export function loadPersistedState() {
 }
 
 export function createInitialState(chapters, persistedState = {}) {
-  const safePersistedState = persistedState && typeof persistedState === 'object' ? persistedState : {}
+  const safePersistedState = persistedState && typeof persistedState === 'object' && !Array.isArray(persistedState) ? persistedState : {}
   const defaults = buildDefaults()
   const chapterIds = new Set(chapters.map((chapter) => chapter.id))
   const visited = Array.isArray(safePersistedState.visitedChapters)
