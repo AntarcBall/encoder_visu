@@ -72,28 +72,29 @@ export function loadPersistedState() {
 }
 
 export function createInitialState(chapters, persistedState = {}) {
+  const safePersistedState = persistedState && typeof persistedState === 'object' ? persistedState : {}
   const defaults = buildDefaults()
   const chapterIds = new Set(chapters.map((chapter) => chapter.id))
-  const visited = Array.isArray(persistedState.visitedChapters)
-    ? persistedState.visitedChapters.filter((id) => chapterIds.has(id))
+  const visited = Array.isArray(safePersistedState.visitedChapters)
+    ? safePersistedState.visitedChapters.filter((id) => chapterIds.has(id))
     : []
-  const explored = Array.isArray(persistedState.exploredInteractions)
-    ? persistedState.exploredInteractions.filter(Boolean)
+  const explored = Array.isArray(safePersistedState.exploredInteractions)
+    ? safePersistedState.exploredInteractions.filter(Boolean)
     : []
 
   const state = {
     ...defaults,
-    ...persistedState,
-    current: normalizeIndex(persistedState.current ?? defaults.current, chapters.length),
-    chapterQuery: typeof persistedState.chapterQuery === 'string' ? persistedState.chapterQuery : defaults.chapterQuery,
-    quizAnswers: persistedState.quizAnswers && typeof persistedState.quizAnswers === 'object' ? persistedState.quizAnswers : {},
+    ...safePersistedState,
+    current: normalizeIndex(safePersistedState.current ?? defaults.current, chapters.length),
+    chapterQuery: typeof safePersistedState.chapterQuery === 'string' ? safePersistedState.chapterQuery : defaults.chapterQuery,
+    quizAnswers: safePersistedState.quizAnswers && typeof safePersistedState.quizAnswers === 'object' ? safePersistedState.quizAnswers : {},
     challengeBest: {
       ...defaults.challengeBest,
-      ...(persistedState.challengeBest && typeof persistedState.challengeBest === 'object' ? persistedState.challengeBest : {}),
+      ...(safePersistedState.challengeBest && typeof safePersistedState.challengeBest === 'object' ? safePersistedState.challengeBest : {}),
     },
     challengeRunning: false,
     challengeTimeLeft: defaults.challengeTimeLeft,
-    lastSavedAt: typeof persistedState.lastSavedAt === 'string' ? persistedState.lastSavedAt : null,
+    lastSavedAt: typeof safePersistedState.lastSavedAt === 'string' ? safePersistedState.lastSavedAt : null,
     visitedChapters: new Set(visited),
     exploredInteractions: new Set(explored),
   }
